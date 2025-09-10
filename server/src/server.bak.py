@@ -28,7 +28,7 @@ from watermarking_method import WatermarkingMethod
 def create_app():
     app = Flask(__name__)
 
-    # --- Config ---
+   # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "SECRET_KEY=crGE1npIXahFMrrp2_syjLHA8TG_bt8f-AD3etM2bZ0")
     app.config["STORAGE_DIR"] = Path(os.environ.get("STORAGE_DIR", "./storage")).resolve()
     app.config["TOKEN_TTL_SECONDS"] = int(os.environ.get("TOKEN_TTL_SECONDS", "86400"))
@@ -41,14 +41,12 @@ def create_app():
 
     app.config["STORAGE_DIR"].mkdir(parents=True, exist_ok=True)
 
-    # --- DB engine only (no Table metadata) ---
+    # --- Url  phrasing and manipulation---
     def db_url() -> str:
-        user = app.config['DB_USER']
-        password = urllib.parse.quote_plus(app.config['DB_PASSWORD'])
-        host = app.config['DB_HOST']
-        port = app.config['DB_PORT']
-        db = app.config['DB_NAME']
-        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"
+        return (
+            f"mysql+pymysql://{app.config['DB_USER']}:{app.config['DB_PASSWORD']}"
+            f"@{app.config['DB_HOST']}:{app.config['DB_PORT']}/{app.config['DB_NAME']}?charset=utf8mb4"
+        )
 
     def get_engine():
         eng = app.config.get("_ENGINE")
@@ -822,3 +820,4 @@ app = create_app()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
