@@ -30,7 +30,7 @@ def create_app():
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
-    app.config["STORAGE_DIR"] = Path(os.environ.get("STORAGE_DIR", "./storage")).resolve()
+    app.config["STORAGE_DIR"] = Path(os.environ.get("STORAGE_DIR").resolve()
     app.config["TOKEN_TTL_SECONDS"] = int(os.environ.get("TOKEN_TTL_SECONDS"))
 
     app.config["DB_USER"] = os.environ.get("DB_USER")
