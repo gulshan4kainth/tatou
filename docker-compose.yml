@@ -17,6 +17,10 @@ services:
       - DB_NAME=tatou
       - DB_USER=${MARIADB_USER}
       - DB_PASSWORD=${MARIADB_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+      - TOKEN_TTL_SECONDS=${TOKEN_TTL_SECONDS}
+      - DB_PORT=${DB_PORT}  # <-- for local dev convenience, ignore in production
+      - STORAGE_DIR=${STORAGE_DIR}
     depends_on:
       db:
         condition: service_healthy

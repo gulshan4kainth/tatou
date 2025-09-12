@@ -29,19 +29,19 @@ def create_app():
     app = Flask(__name__)
 
     # --- Config ---
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "SECRET_KEY=crGE1npIXahFMrrp2_syjLHA8TG_bt8f-AD3etM2bZ0")
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
     app.config["STORAGE_DIR"] = Path(os.environ.get("STORAGE_DIR", "./storage")).resolve()
-    app.config["TOKEN_TTL_SECONDS"] = int(os.environ.get("TOKEN_TTL_SECONDS", "86400"))
+    app.config["TOKEN_TTL_SECONDS"] = int(os.environ.get("TOKEN_TTL_SECONDS"))
 
-    app.config["DB_USER"] = os.environ.get("DB_USER", "kainth")
-    app.config["DB_PASSWORD"] = os.environ.get("DB_PASSWORD", "121320K@inth*")
+    app.config["DB_USER"] = os.environ.get("DB_USER")
+    app.config["DB_PASSWORD"] = os.environ.get("DB_PASSWORD")
     app.config["DB_HOST"] = os.environ.get("DB_HOST", "db")
-    app.config["DB_PORT"] = int(os.environ.get("DB_PORT", "3306"))
-    app.config["DB_NAME"] = os.environ.get("DB_NAME", "tatou")
+    app.config["DB_PORT"] = int(os.environ.get("DB_PORT"))
+    app.config["DB_NAME"] = os.environ.get("DB_NAME")
 
     app.config["STORAGE_DIR"].mkdir(parents=True, exist_ok=True)
 
-    # --- DB engine only (no Table metadata) ---
+    # --- Url  phrasing and manipulation---
     def db_url() -> str:
         user = app.config['DB_USER']
         password = urllib.parse.quote_plus(app.config['DB_PASSWORD'])
@@ -49,6 +49,8 @@ def create_app():
         port = app.config['DB_PORT']
         db = app.config['DB_NAME']
         return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"
+
+# --- DB engine only (no Table metadata) ---
 
     def get_engine():
         eng = app.config.get("_ENGINE")
