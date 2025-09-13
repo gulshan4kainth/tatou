@@ -1,5 +1,6 @@
 import os
 import io
+import secrets
 import hashlib
 import datetime as dt
 from pathlib import Path
@@ -32,6 +33,7 @@ def create_app():
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
     app.config["STORAGE_DIR"] = Path(os.environ.get("STORAGE_DIR")).resolve()
     app.config["TOKEN_TTL_SECONDS"] = int(os.environ.get("TOKEN_TTL_SECONDS"))
+    app.config["ENABLE_PLUGIN_LOAD"] = str(os.environ.get("ENABLE_PLUGIN_LOAD", "false")).lower() == "true"
 
     app.config["DB_USER"] = os.environ.get("DB_USER")
     app.config["DB_PASSWORD"] = os.environ.get("DB_PASSWORD")
@@ -40,6 +42,10 @@ def create_app():
     app.config["DB_NAME"] = os.environ.get("DB_NAME")
 
     app.config["STORAGE_DIR"].mkdir(parents=True, exist_ok=True)
+
+    # Fail fast on missing critical secret
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY is required and must be set in the environment")
 
     # --- Url  phrasing and manipulation---
     def db_url() -> str:
@@ -120,6 +126,11 @@ def create_app():
         if not email or not login or not password:
             return jsonify({"error": "email, login, and password are required"}), 400
 
+        # Restrict login to safe charset to avoid path/logic abuse
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", login):
+            return jsonify({"error": "login must be 1-64 chars [A-Za-z0-9_.-]"}), 400
+
         hpw = generate_password_hash(password)
 
         try:
@@ -174,9 +185,10 @@ def create_app():
         if not file or file.filename == "":
             return jsonify({"error": "empty filename"}), 400
 
-        fname = file.filename
+        fname = secure_filename(file.filename)
 
-        user_dir = app.config["STORAGE_DIR"] / "files" / g.user["login"]
+        # Use uid-based directory to avoid traversal through crafted logins
+        user_dir = app.config["STORAGE_DIR"] / "files" / f"u_{int(g.user['id'])}"
         user_dir.mkdir(parents=True, exist_ok=True)
 
         ts = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
@@ -184,6 +196,19 @@ def create_app():
         stored_name = f"{ts}__{fname}"
         stored_path = user_dir / stored_name
         file.save(stored_path)
+
+        # Basic sanity: require PDF header; clean up if invalid
+        try:
+            with stored_path.open("rb") as fh:
+                header = fh.read(5)
+            if header != b"%PDF-":
+                try:
+                    stored_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                return jsonify({"error": "uploaded file is not a PDF"}), 400
+        except Exception:
+            return jsonify({"error": "failed to read uploaded file"}), 400
 
         sha_hex = _sha256_file(stored_path)
         size = stored_path.stat().st_size
@@ -270,12 +295,11 @@ def create_app():
                 rows = conn.execute(
                     text("""
                         SELECT v.id, v.documentid, v.link, v.intended_for, v.secret, v.method
-                        FROM Users u
-                        JOIN Documents d ON d.ownerid = u.id
+                        FROM Documents d
                         JOIN Versions v ON d.id = v.documentid
-                        WHERE u.login = :glogin AND d.id = :did
+                        WHERE d.ownerid = :uid AND d.id = :did
                     """),
-                    {"glogin": str(g.user["login"]), "did": document_id},
+                    {"uid": int(g.user["id"]), "did": document_id},
                 ).all()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
@@ -300,12 +324,11 @@ def create_app():
                 rows = conn.execute(
                     text("""
                         SELECT v.id, v.documentid, v.link, v.intended_for, v.method
-                        FROM Users u
-                        JOIN Documents d ON d.ownerid = u.id
+                        FROM Documents d
                         JOIN Versions v ON d.id = v.documentid
-                        WHERE u.login = :glogin
+                        WHERE d.ownerid = :uid
                     """),
-                    {"glogin": str(g.user["login"])},
+                    {"uid": int(g.user["id"])},
                 ).all()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
@@ -447,71 +470,74 @@ def create_app():
         return fp
 
     # DELETE /api/delete-document  (and variants)
+    @app.route("/api/delete-document/<int:document_id>", methods=["DELETE"])
     @app.route("/api/delete-document", methods=["DELETE", "POST"])  # POST supported for convenience
-    @app.route("/api/delete-document/<document_id>", methods=["DELETE"])
+    @require_auth
     def delete_document(document_id: int | None = None):
-        # accept id from path, query (?id= / ?documentid=), or JSON body on POST
-        if not document_id:
-            document_id = (
-                request.args.get("id")
-                or request.args.get("documentid")
-                or (request.is_json and (request.get_json(silent=True) or {}).get("id"))
-            )
-        try:
-            doc_id = document_id
-        except (TypeError, ValueError):
-            return jsonify({"error": "document id required"}), 400
-
-        # Fetch the document (enforce ownership)
-        try:
-            with get_engine().connect() as conn:
-                query = "SELECT * FROM Documents WHERE id = " + doc_id
-                row = conn.execute(text(query)).first()
-        except Exception as e:
-            return jsonify({"error": f"database error: {str(e)}"}), 503
-
-        if not row:
-            # Don’t reveal others’ docs—just say not found
-            return jsonify({"error": "document not found"}), 404
-
-        # Resolve and delete file (best effort)
-        storage_root = Path(app.config["STORAGE_DIR"])
-        file_deleted = False
-        file_missing = False
-        delete_error = None
-        try:
-            fp = _safe_resolve_under_storage(row.path, storage_root)
-            if fp.exists():
+            # Accept id from path, query (?id= / ?documentid=), or JSON body on POST
+            if document_id is None:
+                raw_id = (
+                    request.args.get("id")
+                    or request.args.get("documentid")
+                    or (request.is_json and (request.get_json(silent=True) or {}).get("id"))
+                )
                 try:
-                    fp.unlink()
-                    file_deleted = True
-                except Exception as e:
-                    delete_error = f"failed to delete file: {e}"
-                    app.logger.warning("Failed to delete file %s for doc id=%s: %s", fp, row.id, e)
-            else:
-                file_missing = True
-        except RuntimeError as e:
-            # Path escapes storage root; refuse to touch the file
-            delete_error = str(e)
-            app.logger.error("Path safety check failed for doc id=%s: %s", row.id, e)
+                    document_id = int(raw_id)
+                except (TypeError, ValueError):
+                    return jsonify({"error": "document id required (int)"}), 400
 
-        # Delete DB row (will cascade to Version if FK has ON DELETE CASCADE)
-        try:
-            with get_engine().begin() as conn:
-                # If your schema does NOT have ON DELETE CASCADE on Version.documentid,
-                # uncomment the next line first:
-                # conn.execute(text("DELETE FROM Version WHERE documentid = :id"), {"id": doc_id})
-                conn.execute(text("DELETE FROM Documents WHERE id = :id"), {"id": doc_id})
-        except Exception as e:
-            return jsonify({"error": f"database error during delete: {str(e)}"}), 503
+            # Fetch the document (enforce ownership)
+            try:
+                with get_engine().connect() as conn:
+                    row = conn.execute(
+                        text("SELECT * FROM Documents WHERE id = :id AND ownerid = :uid"),
+                        {"id": document_id, "uid": g.user["id"]},
+                    ).first()
+            except Exception as e:
+                return jsonify({"error": f"database error: {str(e)}"}), 503
 
-        return jsonify({
-            "deleted": True,
-            "id": doc_id,
-            "file_deleted": file_deleted,
-            "file_missing": file_missing,
-            "note": delete_error,   # null/omitted if everything was fine
-        }), 200
+            if not row:
+                # Don’t reveal others’ docs—just say not found
+                return jsonify({"error": "document not found"}), 404
+
+            # Resolve and delete file (best effort)
+            storage_root = Path(app.config["STORAGE_DIR"])
+            file_deleted = False
+            file_missing = False
+            delete_error = None
+            try:
+                fp = _safe_resolve_under_storage(row.path, storage_root)
+                if fp.exists():
+                    try:
+                        fp.unlink()
+                        file_deleted = True
+                    except Exception as e:
+                        delete_error = f"failed to delete file: {e}"
+                        app.logger.warning("Failed to delete file %s for doc id=%s: %s", fp, row.id, e)
+                else:
+                    file_missing = True
+            except RuntimeError as e:
+                # Path escapes storage root; refuse to touch the file
+                delete_error = str(e)
+                app.logger.error("Path safety check failed for doc id=%s: %s", row.id, e)
+
+            # Delete DB row (will cascade to Version if FK has ON DELETE CASCADE)
+            try:
+                with get_engine().begin() as conn:
+                    # If your schema does NOT have ON DELETE CASCADE on Version.documentid,
+                    # uncomment the next line first:
+                    # conn.execute(text("DELETE FROM Version WHERE documentid = :id"), {"id": document_id})
+                    conn.execute(text("DELETE FROM Documents WHERE id = :id"), {"id": document_id})
+            except Exception as e:
+                return jsonify({"error": f"database error during delete: {str(e)}"}), 503
+
+            return jsonify({
+                "deleted": True,
+                "id": document_id,
+                "file_deleted": file_deleted,
+                "file_missing": file_missing,
+                "note": delete_error,   # null/omitted if everything was fine
+            }), 200
         
         
     # POST /api/create-watermark or /api/create-watermark/<id>  → create watermarked pdf and returns metadata
@@ -554,10 +580,10 @@ def create_app():
                     text("""
                         SELECT id, name, path
                         FROM Documents
-                        WHERE id = :id
+                        WHERE id = :id AND ownerid = :uid
                         LIMIT 1
                     """),
-                    {"id": doc_id},
+                    {"id": doc_id, "uid": int(g.user["id"])},
                 ).first()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
@@ -620,8 +646,8 @@ def create_app():
         except Exception as e:
             return jsonify({"error": f"failed to write watermarked file: {e}"}), 500
 
-        # link token = sha1(watermarked_file_name)
-        link_token = hashlib.sha1(candidate.encode("utf-8")).hexdigest()
+        # link token = cryptographically random slug
+        link_token = secrets.token_urlsafe(16)
 
         try:
             with get_engine().begin() as conn:
@@ -669,6 +695,8 @@ def create_app():
         STORAGE_DIR/files/plugins/<filename>.{pkl|dill} and register it in wm_mod.METHODS.
         Body: { "filename": "MyMethod.pkl", "overwrite": false }
         """
+        if not app.config.get("ENABLE_PLUGIN_LOAD", False):
+            return jsonify({"error": "plugin loading is disabled"}), 403
         payload = request.get_json(silent=True) or {}
         filename = (payload.get("filename") or "").strip()
         overwrite = bool(payload.get("overwrite", False))
@@ -677,16 +705,30 @@ def create_app():
             return jsonify({"error": "filename is required"}), 400
 
         # Locate the plugin in /storage/files/plugins (relative to STORAGE_DIR)
-        storage_root = Path(app.config["STORAGE_DIR"])
-        plugins_dir = storage_root / "files" / "plugins"
+        storage_root = Path(app.config["STORAGE_DIR"]).resolve()
+        plugins_dir = (storage_root / "files" / "plugins").resolve()
         try:
             plugins_dir.mkdir(parents=True, exist_ok=True)
-            plugin_path = plugins_dir / filename
         except Exception as e:
             return jsonify({"error": f"plugin path error: {e}"}), 500
 
+        # sanitize filename and ensure path stays under plugins_dir
+        safe_name = secure_filename(filename)
+        if not safe_name:
+            return jsonify({"error": "invalid plugin filename"}), 400
+
+        plugin_path = (plugins_dir / safe_name).resolve()
+        try:
+            plugin_path.relative_to(plugins_dir)
+        except ValueError:
+            return jsonify({"error": "plugin path escapes plugins directory"}), 400
+
+        # allow only specific extensions
+        if plugin_path.suffix.lower() not in {".pkl", ".dill"}:
+            return jsonify({"error": "unsupported plugin extension; use .pkl or .dill"}), 400
+
         if not plugin_path.exists():
-            return jsonify({"error": f"plugin file not found: {safe}"}), 404
+            return jsonify({"error": f"plugin file not found: {safe_name}"}), 404
 
         # Unpickle the object (dill if available; else std pickle)
         try:
@@ -715,7 +757,9 @@ def create_app():
         if not is_ok:
             return jsonify({"error": "plugin does not implement WatermarkingMethod API (add_watermark/read_secret)"}), 400
             
-        # Register the class (not an instance) so you can instantiate as needed later
+        # Register the class instance; respect overwrite flag
+        if (method_name in WMUtils.METHODS) and not overwrite:
+            return jsonify({"error": f"method '{method_name}' already exists; set overwrite=true to replace"}), 409
         WMUtils.METHODS[method_name] = cls()
         
         return jsonify({
@@ -769,16 +813,16 @@ def create_app():
         if not method or not isinstance(key, str):
             return jsonify({"error": "method, and key are required"}), 400
 
-        # lookup the document; FIXME enforce ownership
+        # lookup the document; enforce ownership
         try:
             with get_engine().connect() as conn:
                 row = conn.execute(
                     text("""
                         SELECT id, name, path
                         FROM Documents
-                        WHERE id = :id
+                        WHERE id = :id AND ownerid = :uid
                     """),
-                    {"id": doc_id},
+                    {"id": doc_id, "uid": int(g.user["id"])},
                 ).first()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503

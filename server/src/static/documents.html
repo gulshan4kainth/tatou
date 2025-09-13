@@ -150,19 +150,20 @@
 
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const form = e.currentTarget;
       statusEl.textContent = 'Uploading…';
-      const fd = new FormData(e.currentTarget);
+      const fd = new FormData(form);
       try {
         const resp = await apiFetch('/api/upload-document', { method: 'POST', body: fd });
         if (!resp.ok) {
           const err = await resp.json().catch(()=>({}));
-          throw new Error(err.message || resp.statusText);
+          throw new Error(err.error || err.message || resp.statusText);
         }
         statusEl.textContent = 'Uploaded successfully';
-        e.currentTarget.reset();
+        if (form && typeof form.reset === 'function') form.reset();
         await loadDocuments();
       } catch (err) {
-        statusEl.textContent = 'Upload failed: ' + err.message;
+        statusEl.textContent = 'Upload failed: ' + (err && err.message ? err.message : String(err));
       } finally {
         setTimeout(()=> statusEl.textContent = '', 3000);
       }

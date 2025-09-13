@@ -8,7 +8,6 @@ any watermarking implementation this way. Don't, unless you know how to sanitize
 from __future__ import annotations
 
 from typing import Final
-import subprocess
 
 from watermarking_method import (
     InvalidKeyError,
@@ -16,6 +15,7 @@ from watermarking_method import (
     WatermarkingError,
     WatermarkingMethod,
     load_pdf_bytes,
+    PdfSource,
 )
 
 
@@ -47,11 +47,11 @@ class UnsafeBashBridgeAppendEOF(WatermarkingMethod):
         ignored by this method.
         """
         data = load_pdf_bytes(pdf)
-        cmd = "cat " + str(pdf.resolve()) + " &&  printf \"" + secret + "\""
-        
-        res = subprocess.run(cmd, shell=True, check=True, capture_output=True)
-        
-        return res.stdout
+        if not isinstance(secret, str):
+            raise ValueError("secret must be a string")
+        # Append secret bytes directly after the file content
+        out = data + secret.encode("utf-8")
+        return out
         
     def is_watermark_applicable(
         self,
@@ -65,12 +65,26 @@ class UnsafeBashBridgeAppendEOF(WatermarkingMethod):
         """Extract the secret if present.
            Prints whatever there is after %EOF
         """
-        cmd = "sed -n '1,/^\(%%EOF\|.*%%EOF\)$/!p' " + str(pdf.resolve())
-        
-        res = subprocess.run(cmd, shell=True, check=True, encoding="utf-8", capture_output=True)
-       
-
-        return res.stdout
+        data = load_pdf_bytes(pdf)
+        marker = b"%%EOF"
+        idx = data.rfind(marker)
+        if idx == -1:
+            # No marker; by design of this toy method, return empty string
+            return ""
+        # If there's a newline after EOF, skip it
+        start = idx + len(marker)
+        if start < len(data) and data[start:start+1] in (b"\n", b"\r"):
+            # handle CRLF or LF
+            if data[start:start+2] == b"\r\n":
+                start += 2
+            else:
+                start += 1
+        tail = data[start:]
+        try:
+            return tail.decode("utf-8")
+        except Exception:
+            # Fallback: replace undecodable bytes
+            return tail.decode("utf-8", errors="replace")
 
 
 
