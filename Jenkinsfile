@@ -1,56 +1,34 @@
 pipeline {
-  agent any
-  options { timestamps() }
+    agent any
 
-  environment {
-    COMPOSE_PROJECT_NAME = "tatou"
-    COMPOSE_FILE = "docker-compose.yml"
-  }
-
-  stages {
-    stage('Checkout') {
-      steps {
-        git branch: 'main', url: 'https://github.com/your-repo/tatou.git'
-      }
+    environment {
+        COMPOSE_PROJECT_NAME = "tatou"
     }
 
-    stage('Build') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          sh 'docker compose build --pull'
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/gulshan4kainth/tatou.git'
+            }
         }
-      }
-    }
 
-    stage('Test') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          // adjust service name and test path to match your docker-compose.yml
-          sh 'docker compose run --rm server pytest -q server/tests'
+        stage('Build') {
+            steps {
+                sh 'docker compose build'
+            }
         }
-      }
-    }
 
-    stage('Deploy') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          sh '''
-            docker compose down
-            docker compose up -d
-          '''
+        stage('Test') {
+            steps {
+                sh 'docker compose run --rm server pytest server/test'
+            }
         }
-      }
-    }
-  }
 
-  post {
-    failure {
-      wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-        sh 'docker compose logs --no-color --tail=200 || true'
-      }
+        stage('Deploy') {
+            steps {
+                sh 'docker compose down'
+                sh 'docker compose up -d'
+            }
+        }
     }
-    always {
-      cleanWs()
-    }
-  }
 }
