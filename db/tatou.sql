@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS `Users` (
   `hpassword` VARCHAR(255) NOT NULL,           -- password hash (argon2/bcrypt/etc)
   `login` VARCHAR(64) NOT NULL,                -- username/handle
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_users_email` (`email`)
+  UNIQUE KEY `uq_users_email` (`email`),
+  UNIQUE KEY `uq_users_login` (`login`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Documents table
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS `Documents` (
   UNIQUE KEY `uq_documents_path` (`path`),
   KEY `ix_documents_ownerid` (`ownerid`),
   KEY `ix_documents_sha256` (`sha256`),
+  KEY `ix_documents_creation` (`creation`),
   CONSTRAINT `fk_documents_owner`
     FOREIGN KEY (`ownerid`) REFERENCES `Users`(`id`)
     ON UPDATE CASCADE ON DELETE CASCADE
@@ -45,10 +47,12 @@ CREATE TABLE IF NOT EXISTS `Versions` (
   `secret` VARCHAR(320) NOT NULL,              -- secret
   `method` VARCHAR(32) NOT NULL,               -- e.g., "text_overlay"
   `position` TEXT,               -- e.g., "text_overlay"
-  `path` VARCHAR(320) NOT NULL,              -- secret
+  `path` VARCHAR(1024) NOT NULL,              -- storage path on disk/volume
+  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_Versions_link` (`link`),
   KEY `ix_Versions_documentid` (`documentid`),
+  KEY `ix_Versions_created_at` (`created_at`),
   CONSTRAINT `fk_Versions_document`
     FOREIGN KEY (`documentid`) REFERENCES `Documents`(`id`)
     ON UPDATE CASCADE ON DELETE CASCADE
