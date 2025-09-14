@@ -1,31 +1,36 @@
 pipeline {
   agent any
   options { timestamps(); ansiColor('xterm') }
-  tools { git 'Default' }
+
+  environment {
+    COMPOSE_PROJECT_NAME = 'tatou'
+    COMPOSE_FILE = 'docker-compose.yml'   // adjust if different
+  }
 
   stages {
     stage('Checkout') {
-      steps { checkout scm }
+      steps {
+        // Prefer Pipeline-from-SCM job config; if not, use this:
+        git branch: 'main', url: 'https://github.com/gulshan4kainth/tatou.git'
+      }
     }
 
-    stage('Set up venv') {
+    stage('Preflight') {
       steps {
         sh '''
-          python3 -m venv .venv
-          . .venv/bin/activate
-          pip install -U pip
-          pip install -r requirements.txt || true
-          pip install pytest pytest-cov flake8 bandit
+          set -e
+          whoami
+          docker --version
+          docker compose version
         '''
       }
     }
 
-    stage('Lint & SAST') {
+    stage('Build') {
       steps {
         sh '''
-          . .venv/bin/activate
-          flake8 .
-          bandit -r . -q
+          set -e
+          docker compose build --pull
         '''
       }
     }
@@ -33,44 +38,33 @@ pipeline {
     stage('Test') {
       steps {
         sh '''
-          . .venv/bin/activate
-          mkdir -p test-results
-          pytest -q --junitxml=test-results/junit.xml --cov=. --cov-report=xml
+          set -e
+          # Run tests in the app container; adjust service/name & test path
+          docker compose run --rm server pytest -q server/tests || \
+          docker compose run --rm server pytest -q server/test
         '''
-      }
-      post {
-        always {
-          junit 'test-results/junit.xml'
-          publishCoverage adapters: [coberturaAdapter('coverage.xml')]
-        }
       }
     }
 
-    stage('Build Docker (optional)') {
-      when { expression { fileExists('Dockerfile') } }
+    stage('Deploy') {
       steps {
         sh '''
-          IMAGE="${JOB_NAME// /-}:${BUILD_NUMBER}"
-          echo "Building $IMAGE"
-          docker build -t "$IMAGE" .
-          echo $IMAGE > image.txt
-        '''
-      }
-      post { success { archiveArtifacts 'image.txt' } }
-    }
-
-    stage('Deploy (demo, optional)') {
-      when { expression { fileExists('image.txt') } }
-      steps {
-        sh '''
-          IMAGE="$(cat image.txt)"
-          docker rm -f school-demo || true
-          # expose your app on 8000 inside the container
-          docker run -d --name school-demo -p 8000:8000 "$IMAGE"
+          set -e
+          docker compose down
+          docker compose up -d
         '''
       }
     }
   }
 
-  post { always { cleanWs() } }
+  post {
+    failure {
+      // Show last logs to help debugging failed builds
+      sh 'docker compose logs --no-color --tail=200 || true'
+    }
+    always {
+      // Keep workspace clean between builds
+      cleanWs()
+    }
+  }
 }
