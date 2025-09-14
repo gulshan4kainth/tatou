@@ -11,9 +11,9 @@ pipeline {
         stage('Deploy with Docker Compose') {
             steps {
                 // Make sure Docker and Docker Compose are installed on your Jenkins agent
-                sh 'docker-compose down'          // stop old containers if any
-                sh 'docker-compose pull'          // pull latest images
-                sh 'docker-compose up -d'         // start containers
+                sh 'docker compose down'          // stop old containers if any
+                sh 'docker compose pull'          // pull latest images
+                sh 'docker compose up -d'         // start containers
             }
         }
     }
