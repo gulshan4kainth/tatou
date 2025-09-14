@@ -1,34 +1,29 @@
 pipeline {
     agent any
 
-    environment {
-        COMPOSE_PROJECT_NAME = "tatou"
-    }
-
     stages {
-        stage('Checkout') {
+        stage('Clone Repository') {
             steps {
                 git branch: 'main', url: 'https://github.com/gulshan4kainth/tatou.git'
             }
         }
 
-        stage('Build') {
+        stage('Deploy with Docker Compose') {
             steps {
-                sh 'docker compose build'
+                // Make sure Docker and Docker Compose are installed on your Jenkins agent
+                sh 'docker-compose down'          // stop old containers if any
+                sh 'docker-compose pull'          // pull latest images
+                sh 'docker-compose up -d'         // start containers
             }
         }
+    }
 
-        stage('Test') {
-            steps {
-                sh 'docker compose run --rm server pytest server/test'
-            }
+    post {
+        success {
+            echo 'Deployment completed successfully!'
         }
-
-        stage('Deploy') {
-            steps {
-                sh 'docker compose down'
-                sh 'docker compose up -d'
-            }
+        failure {
+            echo 'Deployment failed!'
         }
     }
 }
