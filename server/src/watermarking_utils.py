@@ -43,14 +43,20 @@ from watermarking_method import (
 )
 from add_after_eof import AddAfterEOF
 from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
+from gulshan_method import GulshanMethod
+from adam_method import AdamMethod
+from psm_method import PSMMethod
 
 # --------------------
 # Method registry
 # --------------------
 
 METHODS: Dict[str, WatermarkingMethod] = {
-    AddAfterEOF.name: AddAfterEOF(),
-    UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF()
+    # AddAfterEOF.name: AddAfterEOF(),
+    # UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
+    GulshanMethod.name: GulshanMethod(),
+    AdamMethod.name: AdamMethod(),
+    PSMMethod.name: PSMMethod(),
 }
 """Registry of available watermarking methods.
 
