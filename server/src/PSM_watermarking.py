@@ -1,10 +1,12 @@
-"""psm_method.py
+"""PSM_watermarking.py
 
-Watermarking method for group member PSM.
+PSM-specific watermarking method implementation.
 
-Strategy: Embed a compact payload inside a custom pseudo comment placed
-AFTER EOF (like a trailer extension) with a keyed BLAKE2b tag for
-integrity. Distinct marker to avoid collisions with others.
+Strategy:
+- Append a distinct marker and a compact JSON payload after EOF.
+- Payload carries base64 secret and a keyed BLAKE2b-128 tag for integrity.
+
+Compatible with the WatermarkingMethod interface used by the app.
 """
 from __future__ import annotations
 
@@ -24,14 +26,14 @@ from watermarking_method import (
 )
 
 
-class PSMMethod(WatermarkingMethod):
+class PSMWatermarking(WatermarkingMethod):
     name: Final[str] = "psm"
     _MAGIC: Final[bytes] = b"\n%%WM-PSM:v1\n"
-    _CTX: Final[bytes] = b"wm:group-psm:v1:"  # domain separation
+    _CTX: Final[bytes] = b"wm:group-psm:v1:"
 
     @staticmethod
     def get_usage() -> str:
-        return "Embeds PSM watermark after EOF using BLAKE2b keyed tag; position ignored." 
+        return "Embeds PSM watermark after EOF using keyed BLAKE2b integrity tag."
 
     def add_watermark(self, pdf: PdfSource, secret: str, key: str, position: str | None = None) -> bytes:
         data = load_pdf_bytes(pdf)
@@ -40,9 +42,8 @@ class PSMMethod(WatermarkingMethod):
         if not key:
             raise ValueError("Key must be non-empty")
         s_bytes = secret.encode("utf-8")
-        # Keyed BLAKE2b tag
         tag = hashlib.blake2b(self._CTX + s_bytes, key=key.encode("utf-8"), digest_size=16).hexdigest()
-        obj = {"v":1, "alg":"BLAKE2b-128", "tag":tag, "s": base64.b64encode(s_bytes).decode("ascii")}
+        obj = {"v": 1, "alg": "BLAKE2b-128", "tag": tag, "s": base64.b64encode(s_bytes).decode("ascii")}
         payload = base64.urlsafe_b64encode(json.dumps(obj, separators=(",",":"), ensure_ascii=True).encode("utf-8"))
         out = data
         if not out.endswith(b"\n"):
@@ -80,4 +81,4 @@ class PSMMethod(WatermarkingMethod):
             raise InvalidKeyError("Key failed to authenticate PSM watermark")
         return secret_bytes.decode("utf-8")
 
-__all__ = ["PSMMethod"]
+__all__ = ["PSMWatermarking"]

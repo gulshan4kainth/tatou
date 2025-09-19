@@ -1,13 +1,13 @@
 import os
 import tempfile
 
-from watermarking_utils import apply_watermark, read_watermark, METHODS
+from PSM_watermarking_utils import apply_watermark, read_watermark, METHODS
 
 
 def _round_trip(method: str, secret: str, key: str) -> None:
     pdf_bytes = b"%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF\n"
-    watermarked = apply_watermark(pdf_bytes, secret=secret, key=key, method=method, position=None)
-    assert secret == read_watermark(watermarked, method=method, key=key)
+    watermarked = apply_watermark(method=method, pdf=pdf_bytes, secret=secret, key=key, position=None)
+    assert secret == read_watermark(method=method, pdf=watermarked, key=key)
 
 
 def test_gulshan_round_trip():
