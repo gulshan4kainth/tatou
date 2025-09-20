@@ -9,20 +9,24 @@ services:
       - user-files:/app/storage
       # Mount flag at runtime; keep out of image
       - ./flag:/app/flag:ro
-      # Keys volume not required for signing anymore; remove if unused
+      # RMAP keys: client public keys (course-provided, safe to commit)
+      - ./keys/clients:/app/rmap/clients:ro
+      # Server keypair: map from a secure host dir OUTSIDE the repo
+      - ${RMAP_SERVER_KEYS_HOST_DIR:-../keys}:/app/rmap/server:ro
     environment:
       - PYTHONUNBUFFERED=1
       # DB connection details for future use by the API
       - DB_HOST=${DB_HOST}
-      - DB_PORT=3306
-      - DB_NAME=tatou
-      - DB_USER=${MARIADB_USER}
-      - DB_PASSWORD=${MARIADB_PASSWORD}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       - SECRET_KEY=${SECRET_KEY}
       - TOKEN_TTL_SECONDS=${TOKEN_TTL_SECONDS}
-      - DB_PORT=${DB_PORT}  # <-- for local dev convenience, ignore in production
       - STORAGE_DIR=${STORAGE_DIR}
       - ENABLE_PLUGIN_LOAD=${ENABLE_PLUGIN_LOAD}
+    env_file:
+      - .env
     depends_on:
       db:
         condition: service_healthy

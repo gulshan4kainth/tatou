@@ -9,6 +9,11 @@ WORKDIR /app
 # Copy project description, to instal dependencies
 COPY pyproject.toml /app/pyproject.toml
 
+# Install system dependencies required for building/installing Python packages
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install runtime dependencies
 RUN pip install --no-cache-dir -e .
 

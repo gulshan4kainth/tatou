@@ -27,6 +27,7 @@
   - **POST** `/api/read-watermark/<int:document_id>`
   - **POST** `/api/read-watermark`
 - [upload-document](#upload-document) — **POST** `/api/upload-document`
+ - [RMAP](#rmap)
 
 
 
@@ -407,3 +408,25 @@ This endpoint reads information contain in a pdf document's watermark with the p
 
 **Specification**
  * Only the owner of a document should 
+
+## RMAP
+
+RMAP integration enables privacy-preserving link issuance per recipient identity.
+
+- Endpoints:
+  - `POST /api/rmap-initiate` — Body: `{ "payload": "<base64-armor>" }` → `{ "payload": "..." }`
+  - `POST /api/rmap-get-link` — Body: `{ "payload": "<base64-armor>" }` → `{ "result": "<32-hex>", "identity": "<Group_XX>" }`
+- Fetch a generated version: `GET /api/get-version/<link>` returns the watermarked PDF.
+
+Configuration via `.env` (loaded by Docker Compose):
+- `RMAP_ENABLE` (true/false): enable the endpoints.
+- `RMAP_DOCUMENT_ID` (int): base document ID to watermark.
+- `RMAP_WATERMARK_METHOD` (string): e.g., `gulshan`.
+- `RMAP_WATERMARK_KEY` (string): key used by the selected method.
+- `RMAP_SERVER_KEYS_HOST_DIR` (path): host directory containing server keypair; mounted read-only to container.
+- `RMAP_CLIENT_KEYS_DIR` (path): in-container path to client public keys (default `/app/rmap/clients`).
+- `RMAP_SERVER_PRIV`, `RMAP_SERVER_PUB` (paths): in-container server keypair locations (defaults `/app/rmap/server/priv.asc` and `/app/rmap/server/pub.asc`).
+
+Notes:
+- Place client public keys under `tatou/keys/clients` (committed).
+- Place server private key outside the repository and set `RMAP_SERVER_KEYS_HOST_DIR`.
