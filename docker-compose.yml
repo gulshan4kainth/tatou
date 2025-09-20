@@ -9,6 +9,7 @@ services:
       - user-files:/app/storage
       # Mount flag at runtime; keep out of image
       - ./flag:/app/flag:ro
+      # Keys volume not required for signing anymore; remove if unused
     environment:
       - PYTHONUNBUFFERED=1
       # DB connection details for future use by the API

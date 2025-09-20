@@ -362,8 +362,12 @@ This endpoint reads information contain in a pdf document's watermark with the p
     "position": <string>,
     "key": <string>,
     "secret": <string>,
-    "intended_for": <string>,
-    "id": <int>
+  "intended_for": <string>,
+  "id": <int>,
+  "visible_text": <string, optional>,
+  "visible_color": <string hex like "#A0A0A0", optional>,
+  "visible_angle": <number, optional>,
+  "visible_fontsize": <int, optional>
 }
 ```
  
@@ -378,7 +382,11 @@ This endpoint reads information contain in a pdf document's watermark with the p
     "position": <string>,
     "key": <string>,
     "secret": <string>,
-    "intended_for": <string>
+  "intended_for": <string>,
+  "visible_text": <string, optional>,
+  "visible_color": <string hex like "#A0A0A0", optional>,
+  "visible_angle": <number, optional>,
+  "visible_fontsize": <int, optional>
 }
 ```
 

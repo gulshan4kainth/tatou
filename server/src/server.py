@@ -96,6 +96,50 @@ def create_app():
                 h.update(chunk)
         return h.hexdigest()
 
+    def _apply_visible_overlay(pdf_bytes: bytes, text: str, *, color_hex: str | None = None, angle: float = 45.0, font_size: int | None = None) -> bytes:
+        # Lazy import to avoid overhead if unused
+        import fitz  # PyMuPDF
+        if not isinstance(pdf_bytes, (bytes, bytearray)):
+            raise ValueError("pdf_bytes must be bytes")
+        text = (text or "").strip()
+        if not text:
+            return bytes(pdf_bytes)
+
+        def _parse_hex_color(hx: str) -> tuple[float, float, float]:
+            hx = hx.strip()
+            if hx.startswith('#'):
+                hx = hx[1:]
+            if len(hx) != 6:
+                return (0.6, 0.6, 0.6)
+            r = int(hx[0:2], 16) / 255.0
+            g = int(hx[2:4], 16) / 255.0
+            b = int(hx[4:6], 16) / 255.0
+            return (r, g, b)
+
+        color = _parse_hex_color(color_hex) if color_hex else (0.6, 0.6, 0.6)
+
+        doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+        try:
+            for page in doc:
+                rect = page.rect
+                # scale font with page size if not provided
+                fs = font_size or max(12, int(min(rect.width, rect.height) * 0.06))
+                # center text in the page bounding box, rotated
+                page.insert_textbox(
+                    rect,
+                    text,
+                    fontsize=fs,
+                    color=color,
+                    rotate=angle,
+                    fontname="helv",
+                    align=1,  # center
+                )
+            return doc.tobytes()
+        finally:
+            doc.close()
+
+    # Signing helpers removed
+
     # --- Routes ---
     
     @app.route("/<path:filename>")
@@ -629,6 +673,18 @@ def create_app():
                 return jsonify({"error": "watermarking produced no output"}), 500
         except Exception as e:
             return jsonify({"error": f"watermarking failed: {e}"}), 500
+
+        # Optional: apply visible text overlay if requested
+        visible_text = (payload.get("visible_text") or payload.get("overlay_text") or "").strip()
+        if visible_text:
+            try:
+                color_hex = (payload.get("visible_color") or payload.get("overlay_color") or None)
+                angle = float(payload.get("visible_angle", 45))
+                fs = payload.get("visible_fontsize")
+                fs = int(fs) if fs is not None else None
+                wm_bytes = _apply_visible_overlay(bytes(wm_bytes), visible_text, color_hex=color_hex, angle=angle, font_size=fs)
+            except Exception as e:
+                return jsonify({"error": f"visible overlay failed: {e}"}), 400
 
         # build destination file name: "<original_name>__<intended_to>.pdf"
         base_name = Path(row.name or file_path.name).stem
